@@ -1,0 +1,1345 @@
+#platform "uLCD-70DT"
+
+// TODO: draw menu in respective loop.
+// TODO: if there is something in the serial buffer can't cut.
+// or use bus_SetChangeInterrupt(), how to update display tho.
+// TODO: check input data that it doesn't exceed max dimensions
+
+#inherit "4DGL_16bitColours.fnc"
+
+#inherit "VisualConst.inc"
+
+#inherit "Torch_GUIConst.inc"
+
+// enum types
+#constant line := 1, rectangle, circle, arc
+#constant NULL '\0'
+#constant false 0
+#constant true 1
+#constant max 30
+#constant maxBuff 50
+#constant DBG 0
+
+var state, x, y, count, checkCount;
+// TODO: shape to alloc() to this array to support edit function.
+var list[max];
+var checkList[max];
+var cutBuffer[maxBuff];
+var cutBuffer1[maxBuff];
+var shapeParam[5] := [-1, 13, 13, 10, 16];
+
+func welcomeScreen()
+
+    // TODO: should check if system is zeroed before beginning.
+
+    gfx_Cls();
+    putstrCentred(400, 240, "Tap to begin.");
+    while (!(touch_Get(TOUCH_STATUS)))
+    wend
+
+    mainMenu();
+endfunc
+
+func updateGlobal()
+    state := touch_Get(TOUCH_STATUS);
+    x := touch_Get(TOUCH_GETX);
+    y := touch_Get(TOUCH_GETY);
+
+    if(state == TOUCH_MOVING && DBG)                           // if there's movement
+        gfx_MoveTo(712,470);
+        txt_FGcolour(WHITE);
+        txt_BGcolour(BLACK);
+        print("X:",[DEC3ZB] x," Y:", [DEC3ZB] y);
+        txt_FGcolour(LIME);
+    endif
+endfunc
+
+func printNumber(var *arr)
+    var i;
+
+    print(arr[0], ".");
+    for(i := 0; i < arr[1]; i++)
+        print("0");
+    next
+    print(arr[2]);
+endfunc
+
+// TODO: draw checkboxs.
+func cutListPreview()
+    var i;
+
+    gfx_MoveTo(165, 10);
+    txt_FGcolour(WHITE);
+    txt_BGcolour(BLACK);
+    print("Cut List\n");
+
+    for(i := 0; i < count; i++)
+        switch(*(list[i]))
+            case line:
+                print("Line: (");
+                printNumber(list[i] + 1);
+                print(", ");
+                printNumber(list[i] + 4);
+                print(") -> (");
+                printNumber(list[i] + 7);
+                print(", ");
+                printNumber(list[i] + 10);
+                print(")\n");
+            break;
+            case rectangle:
+                print("Rectangle: (");
+                printNumber(list[i] + 1);
+                print(", ");
+                printNumber(list[i] + 4);
+                print(") W: ");
+                printNumber(list[i] + 7);
+                print(" H: ");
+                printNumber(list[i] + 10);
+                // TODO: change number in shapeParam[]
+                //print("Rot: ");
+                //printNumber(list[i] + 13);
+                //print("deg.");
+                print("\n");
+            break;
+            case circle:
+                print("Circle: (");
+                printNumber(list[i] + 1);
+                print(", ");
+                printNumber(list[i] + 4);
+                print("), R: ");
+                printNumber(list[i] + 7);
+                print("\n");
+            break;
+            case arc:
+                print("Arc: (");
+                printNumber(list[i] + 1);
+                print(", ");
+                printNumber(list[i] + 4);
+                print("), R: ");
+                printNumber(list[i] + 7);
+                print(" Start: ");
+                printNumber(list[i] + 10);
+                print(" deg. End: ");
+                printNumber(list[i] + 13);
+                print(" deg.\n");
+            break;
+        endswitch
+    next
+endfunc
+
+func shapeMenu()
+
+    gfx_Cls();
+    gfx_Button2(1, 0, 0, 150, 75, LIGHTGREY,BLACK,"Line");
+    gfx_Button2(1, 0, 75, 150, 75, LIGHTGREY,BLACK,"Rectangle");
+    gfx_Button2(1, 0, 150, 150, 75, LIGHTGREY,BLACK,"Circle");
+    gfx_Button2(1, 0, 225, 150, 75, LIGHTGREY,BLACK, "Arc");
+    gfx_Button2(0, 0, 300, 150, 75, LIGHTGREY, BLACK, "Ellipse");
+    gfx_Button2(1, 0, 405, 150, 75, LIGHTGREY, BLACK, "Main Menu");
+endfunc
+
+func shapeLoop()
+    var exit;
+    var *param;
+
+    while(!exit)
+        updateGlobal();
+
+        if(state == TOUCH_PRESSED)
+            if(x >= 0 && x <= 150)
+                if(y >= 0 && y <= 75)           // Lines
+                    param := lineParam();
+                else if(y >= 75 && y <= 150)    // Rectangles
+                    param := rectParam();
+                else if(y >= 150 && y <= 225)   // Circles
+                    param := cirParam();
+                else if(y >= 225 && y <= 300)   // Arcs
+                    param := arcParam();
+                else if(y >= 300 && y <= 375)
+                    param := ellipseParam();
+                else if(y >= 405 && y <= 480)   // Main Menu
+                    exit := 1;
+                endif
+            endif
+        endif
+
+        if(param)
+            list[count] := param;
+            if(DBG)
+                var i;
+
+                gfx_MoveTo(200, 0);
+                print(param, " == ", list[count], "\n");
+                for(i := 0; i < shapeParam[*(list[count])]; i++)
+                    print(*(list[count] + i), "\n");
+                next
+            endif
+            count++;
+            param := NULL;
+        endif
+    wend
+
+    mainMenu();
+endfunc
+
+func shapeInputTemplate()
+
+    gfx_Cls();
+    gfx_Line(5, 5, 30, 5, RED);
+    gfx_TriangleFilled(30, 10, 35, 5, 30, 0, RED);
+    gfx_Line(5, 5, 5, 30, BLUE);
+    gfx_TriangleFilled(0, 30, 10, 30, 5, 35, BLUE);
+    gfx_MoveTo(40, 0);
+    txt_BGcolour(BLACK);
+    txt_FGcolour(RED);
+    print("X");
+    gfx_MoveTo(2, 40);
+    txt_FGcolour(BLUE);
+    print("Y");
+    gfx_CircleFilled(5, 5, 2, YELLOW);
+    gfx_Button2(1, 530, 0, 90, 120, LIGHTGREY, BLACK, "7");
+    gfx_Button2(1, 620, 0, 90, 120, LIGHTGREY, BLACK, "8");
+    gfx_Button2(1, 710, 0, 90, 120, LIGHTGREY, BLACK, "9");
+    gfx_Button2(1, 530, 120, 90, 120, LIGHTGREY, BLACK, "4");
+    gfx_Button2(1, 620, 120, 90, 120, LIGHTGREY, BLACK, "5");
+    gfx_Button2(1, 710, 120, 90, 120, LIGHTGREY, BLACK, "6");
+    gfx_Button2(1, 530, 240, 90, 120, LIGHTGREY, BLACK, "1");
+    gfx_Button2(1, 620, 240, 90, 120, LIGHTGREY, BLACK, "2");
+    gfx_Button2(1, 710, 240, 90, 120, LIGHTGREY, BLACK, "3");
+    gfx_Button2(1, 530, 360, 90, 120, LIGHTGREY, BLACK, "0");
+    gfx_Button2(1, 620, 360, 90, 120, LIGHTGREY, BLACK, ".");
+    gfx_Button2(1, 710, 360, 90, 120, LIGHTGREY, CRIMSON, "back");
+    gfx_Button3(1, 0, 405, 150, 75, RED, BLACK, "CANCEL");
+    gfx_Button3(1, 380, 405, 150, 75, LIME, BLACK, "ADD");
+    txt_BGcolour(BLACK);
+    txt_FGcolour(WHITE);
+    putstrCentred(270, 445, "NOTE: Units are in inches.");
+endfunc
+
+// This function assumes that updateGlobal() is called beforehand.
+func numPadInput()
+    var val := -1;
+
+    if(y >= 0 && y <= 120)
+        if(x >= 530 && x <= 620)            // 7
+            val := 7;
+        else if(x >= 620 && x <= 710)       // 8
+            val := 8;
+        else if(x >= 710 && x <800)         // 9
+            val := 9;
+        endif
+    else if(y >= 120 && y <= 240)
+        if(x >= 530 && x <= 620)            // 4
+            val := 4;
+        else if(x >= 620 && x <= 710)       // 5
+            val := 5;
+        else if(x >= 710 && x <800)         // 6
+            val := 6;
+        endif
+    else if(y >= 240 && y <= 360)
+        if(x >= 530 && x <= 620)            // 1
+            val := 1;
+        else if(x >= 620 && x <= 710)       // 2
+            val := 2;
+        else if(x >= 710 && x <800)         // 3
+            val := 3;
+        endif
+    else if(y >= 360 && y <= 480)
+        if(x >= 530 && x <= 620)            // 0
+            val := 0;
+        else if(x >= 620 && x <= 710)       // .
+            val := 10;
+        else if(x >= 710 && x <800)         // del
+            val := 11;
+        endif
+    endif
+    return val;
+endfunc
+
+// TODO: make box selection more obvious, change color of box
+func lineParam()
+    var exit, select, num, prevBoxSelect, update, i, j, tmp, param;
+    var boxSelect := 0xFF;
+    var dec[4];
+
+    param := mem_AllocZ(shapeParam[line] * 2);    // shape type | before dec | # of 0s | after dec ...
+    *(param) := line;
+
+    shapeInputTemplate();
+    gfx_Line(40, 60, 470, 350, WHITE);
+    gfx_CircleFilled(40, 60, 2, CYAN);
+    gfx_CircleFilled(470, 350, 2,  CORAL);
+    txt_BGcolour(BLACK);
+    txt_FGcolour(CYAN);
+    gfx_MoveTo(60, 22);
+    print("Start X: ");
+    gfx_MoveTo(60, 46);
+    print("Start Y: ");
+    txt_FGcolour(CORAL);
+    gfx_MoveTo(365, 232);
+    print("End X: ");
+    gfx_MoveTo(365, 256);
+    print("End Y: ");
+    txt_FGcolour(BLACK);
+    txt_BGcolour(WHITE);
+
+    while(!exit)
+        if((boxSelect != prevBoxSelect) || update)
+            gfx_Panel(boxSelect >> 0 & 1, 134, 18, 100, 20, (boxSelect >> 0 & 1) ? WHITE : RED);
+            gfx_Panel(boxSelect >> 1 & 1, 134, 42, 100, 20, (boxSelect >> 1 & 1) ? WHITE : RED);
+            gfx_Panel(boxSelect >> 2 & 1, 423, 228, 100, 20, (boxSelect >> 2 & 1) ? WHITE : RED);
+            gfx_Panel(boxSelect >> 3 & 1, 423, 252, 100, 20, (boxSelect >> 3 & 1) ? WHITE : RED);
+            prevBoxSelect := boxSelect;
+            update := false;
+        endif
+
+        // TODO: helper function to print numbers.
+
+        for(i := 0; i < shapeParam[line] / 3; i++)
+            switch(i)
+                case 0:
+                    gfx_MoveTo(138, 22);                   // start x
+                    break;
+                case 1:
+                     gfx_MoveTo(138, 46);                  // start y
+                    break;
+                case 2:
+                     gfx_MoveTo(427, 232);                 // end x
+                    break;
+                case 3:
+                     gfx_MoveTo(427, 256);                 // end y
+                    break;
+            endswitch
+            tmp := (i * 3) + 1;
+            if(*(param + tmp))
+                print(*(param + tmp));
+            endif
+            if(dec[i])
+                print(".");
+                for(j := 0; j < *(param + (tmp + 1)); j++)
+                    print("0");
+                next
+                if(*(param + (tmp + 2)))
+                    print(*(param + (tmp + 2)));
+                endif
+            endif
+        next
+
+        updateGlobal();
+        if(state == TOUCH_PRESSED)
+            // TODO: figure out why ternary doesn't work
+            if(x >= 134 && x <= 234 && y >= 18 && y <= 38)           // start x box
+                if(*(param + 3) || dec[0])
+                    select := 3;
+                else
+                    select := 1;
+                endif
+                boxSelect := 0xFF ^ (1 << 0);
+            else if(x >= 134 && x <= 234 && y >= 42 && y <= 62)     // start y box
+                if(*(param + 6) || dec[1])
+                    select := 6;
+                else
+                    select := 4;
+                endif
+                boxSelect := 0xFF ^ (1 << 1);
+            else if(x >= 423 && x <= 523 && y >= 228 && y <= 248)    // end x box
+                if(*(param + 9) || dec[2])
+                    select := 9;
+                else
+                    select := 7;
+                endif
+                boxSelect := 0xFF ^ (1 << 2);
+            else if(x >= 423 && x <= 523 && y >= 252 && y <= 272)    // end y box
+                if(*(param + 12) || dec[3])
+                    select := 12;
+                else
+                    select := 10;
+                endif
+                boxSelect := 0xFF ^ (1 << 3);
+            else if(y >= 405 && y <= 480)
+                if(x >= 0 && x <= 150)                               // cancel
+                    exit := -1;
+                else if(x >= 380 && x <= 530)                        // add
+                    exit := 1;
+                endif
+            else
+                boxSelect := 0xFF;                                    // deselect box
+            endif
+            num := numPadInput();
+            if(select && (num >= 0))
+                if(num == 11)                                        // delete
+                    if(*(param + select))
+                        *(param + select) := *(param + select) / 10;
+                    else
+                        if(!(select % 3) && dec[(select - 3) / 3])
+                            if(*(param + (select - 1)))              // determines if # of 0's should be decremented
+                                (*(param + (select - 1)))--;
+                            else                                     // removes decimal point
+                                dec[(select - 1) / 3] := false;
+                                select := select - 2;
+                            endif
+                        endif
+                    endif
+                    update := true;
+                else if(num == 10)                                   // decimal point
+                    if((select % 3 == 1) && !dec[(select - 1) / 3])
+                        dec[(select - 1) / 3] := true;
+                        select := select + 2;
+                    endif
+                else                                                 // numbers
+                    *(param + select) := *(param + select) * 10 + num;
+                    if(!(select % 3) && dec[(select - 3) / 3] && !num && !*(param + select))
+                        (*(param + (select - 1)))++;
+                    endif
+                endif
+            endif
+            if(boxSelect == 0xFF && num == -1 && !exit)              // deselect box
+                select := 0;
+            endif
+        endif
+
+        if(DBG)
+            gfx_MoveTo(0, 0);
+            print("param:\n");
+            for(i := 0; i < shapeParam[line]; i++)
+                print([HEX](*(param + i)), "\n");
+            next
+            print("select: ", select);
+            gfx_MoveTo(400, 0);
+            for(i := 0; i < 4; i++)
+                print(dec[i], "\n");
+            next
+        endif
+    wend
+    shapeMenu();
+
+    if(DBG)
+        gfx_MoveTo(0, 0);
+        print("param address: ", param, "\n");
+        for(i := 0; i < shapeParam[line]; i++)
+            print(*(param + i), "\n");
+        next
+    endif
+   return (exit == 1) ? param : NULL;
+endfunc
+
+// TODO: add degree for rotation.
+func rectParam()
+    var exit, select, num, prevBoxSelect, update, i, j, tmp, param;
+    var boxSelect := 0xFF;
+    var dec[5];
+
+    param := mem_AllocZ(shapeParam[rectangle] * 2);    // shape type | before dec | # of 0s | after dec ...
+    *(param) := rectangle;
+
+    shapeInputTemplate();
+    gfx_Rectangle(120, 75, 500, 375, WHITE);
+    gfx_Line(120, 75, 500, 75, MEDIUMBLUE);
+    gfx_Line(120, 75, 120, 375, LIME);
+    gfx_CircleFilled(120, 75, 2, CYAN);
+    txt_BGcolour(BLACK);
+    txt_FGcolour(CYAN);
+    gfx_MoveTo(40, 26);
+    print("X: ");
+    gfx_MoveTo(40, 50);
+    print("Y: ");
+    txt_FGcolour(MEDIUMBLUE);
+    gfx_MoveTo(250, 34);
+    print("Width: ");
+    txt_FGcolour(LIME);
+    gfx_MoveTo(10, 200);
+    print("Height: ");
+    txt_BGcolour(WHITE);
+    txt_FGcolour(BLACK);
+
+    while(!exit)
+         if((boxSelect != prevBoxSelect) || update)
+            gfx_Panel(boxSelect >> 0 & 1, 65, 22, 100, 20, (boxSelect >> 0 & 1) ? WHITE : RED);
+            gfx_Panel(boxSelect >> 1 & 1, 65, 46, 100, 20, (boxSelect >> 1 & 1) ? WHITE : RED);
+            gfx_Panel(boxSelect >> 2 & 1, 307, 30, 100, 20, (boxSelect >> 2 & 1) ? WHITE : RED);
+            gfx_Panel(boxSelect >> 3 & 1, 10, 215, 100, 20, (boxSelect >> 3 & 1) ? WHITE : RED);
+            prevBoxSelect := boxSelect;
+            update := false;
+        endif
+
+        for(i := 0; i < shapeParam[rectangle] / 3; i++)
+            switch(i)
+                case 0:
+                    gfx_MoveTo(69, 26);                    // X
+                    break;
+                case 1:
+                     gfx_MoveTo(69, 50);                   // Y
+                    break;
+                case 2:
+                     gfx_MoveTo(311, 34);                  // Width
+                    break;
+                case 3:
+                     gfx_MoveTo(14, 219);                  // Height
+                    break;
+            endswitch
+            tmp := (i * 3) + 1;
+            if(*(param + tmp))
+                print(*(param + tmp));
+            endif
+            if(dec[i])
+                print(".");
+                for(j := 0; j < *(param + (tmp + 1)); j++)
+                    print("0");
+                next
+                if(*(param + (tmp + 2)))
+                    print(*(param + (tmp + 2)));
+                endif
+            endif
+        next
+
+        updateGlobal();
+        if(state == TOUCH_PRESSED)
+            // TODO: figure out why ternary doesn't work
+            if(x >= 65 && x <= 165 && y >= 22 && y <= 42)             // X box
+                if(*(param + 3) || dec[0])
+                    select := 3;
+                else
+                    select := 1;
+                endif
+                boxSelect := 0xFF ^ (1 << 0);
+            else if(x >= 65 && x <= 165 && y >= 46 && y <= 66)       // Y box
+                if(*(param + 6) || dec[1])
+                    select := 6;
+                else
+                    select := 4;
+                endif
+                boxSelect := 0xFF ^ (1 << 1);
+            else if(x >= 307 && x <= 407 && y >= 30 && y <= 50)      // Width box
+                if(*(param + 9) || dec[2])
+                    select := 9;
+                else
+                    select := 7;
+                endif
+                boxSelect := 0xFF ^ (1 << 2);
+            else if(x >= 10 && x <= 110 && y >= 215 && y <= 235)     // Height box
+                if(*(param + 12) || dec[3])
+                    select := 12;
+                else
+                    select := 10;
+                endif
+                boxSelect := 0xFF ^ (1 << 3);
+            else if(y >= 405 && y <= 480)
+                if(x >= 0 && x <= 150)                               // cancel
+                    exit := -1;
+                else if(x >= 380 && x <= 530)                        // add
+                    exit := 1;
+                endif
+            else
+                boxSelect := 0xFF;                                    // deselect box
+            endif
+            num := numPadInput();
+            if(select && (num >= 0))
+                if(num == 11)                                        // delete
+                    if(*(param + select))
+                        *(param + select) := *(param + select) / 10;
+                    else
+                        if(!(select % 3) && dec[(select - 3) / 3])
+                            if(*(param + (select - 1)))              // determines if # of 0's should be decremented
+                                (*(param + (select - 1)))--;
+                            else                                     // removes decimal point
+                                dec[(select - 1) / 3] := false;
+                                select := select - 2;
+                            endif
+                        endif
+                    endif
+                    update := true;
+                else if(num == 10)                                   // decimal point
+                    if((select % 3 == 1) && !dec[(select - 1) / 3])
+                        dec[(select - 1) / 3] := true;
+                        select := select + 2;
+                    endif
+                else                                                 // numbers
+                    *(param + select) := *(param + select) * 10 + num;
+                    if(!(select % 3) && dec[(select - 3) / 3] && !num && !*(param + select))
+                        (*(param + (select - 1)))++;
+                    endif
+                endif
+            endif
+            if(boxSelect == 0xFF && num == -1 && !exit)              // deselect box
+                select := 0;
+            endif
+        endif
+
+        if(DBG)
+            gfx_MoveTo(0, 0);
+            print("param:\n");
+            for(i := 0; i < shapeParam[rectangle]; i++)
+                print([HEX](*(param + i)), "\n");
+            next
+            print("select: ", select);
+            gfx_MoveTo(400, 0);
+            for(i := 0; i < 4; i++)
+                print(dec[i], "\n");
+            next
+        endif
+    wend
+    shapeMenu();
+
+    if(DBG)
+        gfx_MoveTo(0, 0);
+        print("param address: ", param, "\n");
+        for(i := 0; i < shapeParam[rectangle]; i++)
+            print(*(param + i), "\n");
+        next
+    endif
+    return (exit == 1) ? param : NULL;
+endfunc
+
+func cirParam()
+    var exit, select, num, prevBoxSelect, update, i, j, tmp, param;
+    var boxSelect := 0xFF;
+    var dec[5];
+
+    param := mem_AllocZ(shapeParam[circle] * 2);    // shape type | before dec | # of 0s | after dec ...
+    *(param) := circle;
+
+    shapeInputTemplate();
+    gfx_Circle(265, 202, 200, WHITE);
+    gfx_CircleFilled(265, 202, 2, CYAN);
+    gfx_LinePattern(0b1100110011001100);
+    gfx_Line(265, 202, 417, 332, LIME);
+    gfx_LinePattern(0);
+    txt_BGcolour(BLACK);
+    txt_FGcolour(CYAN);
+    gfx_MoveTo(160, 150);
+    print("Center X: ");
+    gfx_MoveTo(160, 174);
+    print("Center Y: ");
+    txt_FGcolour(LIME);
+    gfx_MoveTo(250, 275);
+    print("Radius:");
+    txt_BGcolour(WHITE);
+    txt_FGcolour(BLACK);
+
+    while(!exit)
+         if((boxSelect != prevBoxSelect) || update)
+            gfx_Panel(boxSelect >> 0 & 1, 241, 146, 100, 20, (boxSelect >> 0 & 1) ? WHITE : RED);
+            gfx_Panel(boxSelect >> 1 & 1, 241, 170, 100, 20, (boxSelect >> 1 & 1) ? WHITE : RED);
+            gfx_Panel(boxSelect >> 2 & 1, 250, 290, 100, 20, (boxSelect >> 2 & 1) ? WHITE : RED);
+            prevBoxSelect := boxSelect;
+            update := false;
+        endif
+
+        for(i := 0; i < shapeParam[circle] / 3; i++)
+            switch(i)
+                case 0:
+                    gfx_MoveTo(245, 150);                  // Center X
+                    break;
+                case 1:
+                     gfx_MoveTo(245, 174);                 // Center Y
+                    break;
+                case 2:
+                     gfx_MoveTo(254, 294);                 // Radius
+                    break;
+            endswitch
+            tmp := (i * 3) + 1;
+            if(*(param + tmp))
+                print(*(param + tmp));
+            endif
+            if(dec[i])
+                print(".");
+                for(j := 0; j < *(param + (tmp + 1)); j++)
+                    print("0");
+                next
+                if(*(param + (tmp + 2)))
+                    print(*(param + (tmp + 2)));
+                endif
+            endif
+        next
+
+        updateGlobal();
+        if(state == TOUCH_PRESSED)
+            // TODO: figure out why ternary doesn't work
+            if(x >= 241 && x <= 341 && y >= 146 && y <= 166)         // X box
+                if(*(param + 3) || dec[0])
+                    select := 3;
+                else
+                    select := 1;
+                endif
+                boxSelect := 0xFF ^ (1 << 0);
+            else if(x >= 241 && x <= 341 && y >= 170 && y <= 190)    // Y box
+                if(*(param + 6) || dec[1])
+                    select := 6;
+                else
+                    select := 4;
+                endif
+                boxSelect := 0xFF ^ (1 << 1);
+            else if(x >= 250 && x <= 350 && y >= 290 && y <= 310)    // Radius box
+                if(*(param + 9) || dec[2])
+                    select := 9;
+                else
+                    select := 7;
+                endif
+                boxSelect := 0xFF ^ (1 << 2);
+            else if(y >= 405 && y <= 480)
+                if(x >= 0 && x <= 150)                               // cancel
+                    exit := -1;
+                else if(x >= 380 && x <= 530)                        // add
+                    exit := 1;
+                endif
+            else
+                boxSelect := 0xFF;                                    // deselect box
+            endif
+            num := numPadInput();
+            if(select && (num >= 0))
+                if(num == 11)                                        // delete
+                    if(*(param + select))
+                        *(param + select) := *(param + select) / 10;
+                    else
+                        if(!(select % 3) && dec[(select - 3) / 3])
+                            if(*(param + (select - 1)))              // determines if # of 0's should be decremented
+                                (*(param + (select - 1)))--;
+                            else                                     // removes decimal point
+                                dec[(select - 1) / 3] := false;
+                                select := select - 2;
+                            endif
+                        endif
+                    endif
+                    update := true;
+                else if(num == 10)                                   // decimal point
+                    if((select % 3 == 1) && !dec[(select - 1) / 3])
+                        dec[(select - 1) / 3] := true;
+                        select := select + 2;
+                    endif
+                else                                                 // numbers
+                    *(param + select) := *(param + select) * 10 + num;
+                    if(!(select % 3) && dec[(select - 3) / 3] && !num && !*(param + select))
+                        (*(param + (select - 1)))++;
+                    endif
+                endif
+            endif
+            if(boxSelect == 0xFF && num == -1 && !exit)              // deselect box
+                select := 0;
+            endif
+        endif
+
+        if(DBG)
+            gfx_MoveTo(0, 0);
+            print("param:\n");
+            for(i := 0; i < shapeParam[circle]; i++)
+                print([HEX](*(param + i)), "\n");
+            next
+            print("select: ", select);
+            gfx_MoveTo(400, 0);
+            for(i := 0; i < 4; i++)
+                print(dec[i], "\n");
+            next
+        endif
+    wend
+    shapeMenu();
+
+    if(DBG)
+        gfx_MoveTo(0, 0);
+        print("param address: ", param, "\n");
+        for(i := 0; i < shapeParam[circle]; i++)
+            print(*(param + i), "\n");
+        next
+    endif
+    return (exit == 1) ? param : NULL;
+endfunc
+
+func arcParam()
+    var exit, select, num, prevBoxSelect, update, i, j, tmp, param;
+    var boxSelect := 0xFF;
+    var dec[5];
+
+    param := mem_AllocZ(shapeParam[arc] * 2);    // shape type | before dec | # of 0s | after dec ...
+    *(param) := arc;
+
+    shapeInputTemplate();
+    gfx_Arc(190, 100, 300, 10, 0, 120, 0);
+    gfx_Line(190, 100, 490, 100, GOLD);
+    gfx_Line(190, 100, 40, 359, TEAL);
+    gfx_CircleFilled(190, 100, 2, CYAN);
+    gfx_LinePattern(0b1100110011001100);
+    gfx_Line(190, 100, 418, 295, LIME);
+    gfx_LinePattern(0);
+    txt_BGcolour(BLACK);
+    txt_FGcolour(CYAN);
+    gfx_MoveTo(50, 40);
+    print("Center X: ");
+    gfx_MoveTo(50, 64);
+    print("Center Y: ");
+    txt_FGcolour(LIME);
+    gfx_MoveTo(300, 150);
+    print("Radius:");
+    gfx_MoveTo(300, 40);
+    txt_FGcolour(GOLD);
+    print("Start Degree:");
+    txt_FGcolour(TEAL);
+    gfx_MoveTo(130, 230);
+    print("End Degree:");
+    txt_BGcolour(WHITE);
+    txt_FGcolour(BLACK);
+
+    while(!exit)
+         if((boxSelect != prevBoxSelect) || update)
+            gfx_Panel(boxSelect >> 0 & 1, 131, 36, 100, 20, (boxSelect >> 0 & 1) ? WHITE : RED);
+            gfx_Panel(boxSelect >> 1 & 1, 131, 60, 100, 20, (boxSelect >> 1 & 1) ? WHITE : RED);
+            gfx_Panel(boxSelect >> 2 & 1, 300, 165, 100, 20, (boxSelect >> 2 & 1) ? WHITE : RED);
+            gfx_Panel(boxSelect >> 3 & 1, 300, 55, 100, 20, (boxSelect >> 3 & 1) ? WHITE : RED);
+            gfx_Panel(boxSelect >> 4 & 1, 130, 245, 100, 20, (boxSelect >> 4 & 1) ? WHITE : RED);
+            prevBoxSelect := boxSelect;
+            update := false;
+        endif
+
+        for(i := 0; i < shapeParam[arc] / 3; i++)
+            switch(i)
+                case 0:
+                    gfx_MoveTo(135, 40);                   // Center X
+                    break;
+                case 1:
+                    gfx_MoveTo(135, 64);                   // Center Y
+                    break;
+                case 2:
+                    gfx_MoveTo(304, 169);                  // Radius
+                    break;
+                case 3:
+                    gfx_MoveTo(304, 59);                   // Start Degree
+                    break;
+                case 4:
+                    gfx_MoveTo(134, 249);                  // End Degree
+                    break;
+            endswitch
+            tmp := (i * 3) + 1;
+            if(*(param + tmp))
+                print(*(param + tmp));
+            endif
+            if(dec[i])
+                print(".");
+                for(j := 0; j < *(param + (tmp + 1)); j++)
+                    print("0");
+                next
+                if(*(param + (tmp + 2)))
+                    print(*(param + (tmp + 2)));
+                endif
+            endif
+        next
+
+        updateGlobal();
+        if(state == TOUCH_PRESSED)
+            // TODO: figure out why ternary doesn't work
+            if(x >= 131 && x <= 231 && y >= 36 && y <= 56)         // X box
+                if(*(param + 3) || dec[0])
+                    select := 3;
+                else
+                    select := 1;
+                endif
+                boxSelect := 0xFF ^ (1 << 0);
+            else if(x >= 131 && x <= 231 && y >= 60 && y <= 80)    // Y box
+                if(*(param + 6) || dec[1])
+                    select := 6;
+                else
+                    select := 4;
+                endif
+                boxSelect := 0xFF ^ (1 << 1);
+            else if(x >= 300 && x <= 400 && y >= 165 && y <= 185)    // Radius box
+                if(*(param + 9) || dec[2])
+                    select := 9;
+                else
+                    select := 7;
+                endif
+                boxSelect := 0xFF ^ (1 << 2);
+            else if(x >= 300 && x <= 400 && y >= 55 && y <= 75)    // Start Degree box
+                if(*(param + 12) || dec[3])
+                    select := 12;
+                else
+                    select := 10;
+                endif
+                boxSelect := 0xFF ^ (1 << 3);
+            else if(x >= 130 && x <= 230 && y >= 245 && y <= 265)    // End Degree box
+                if(*(param + 15) || dec[4])
+                    select := 15;
+                else
+                    select := 13;
+                endif
+                boxSelect := 0xFF ^ (1 << 4);
+            else if(y >= 405 && y <= 480)
+                if(x >= 0 && x <= 150)                               // cancel
+                    exit := -1;
+                else if(x >= 380 && x <= 530)                        // add
+                    exit := 1;
+                endif
+            else
+                boxSelect := 0xFF;                                    // deselect box
+            endif
+            num := numPadInput();
+            if(select && (num >= 0))
+                if(num == 11)                                        // delete
+                    if(*(param + select))
+                        *(param + select) := *(param + select) / 10;
+                    else
+                        if(!(select % 3) && dec[(select - 3) / 3])
+                            if(*(param + (select - 1)))              // determines if # of 0's should be decremented
+                                (*(param + (select - 1)))--;
+                            else                                     // removes decimal point
+                                dec[(select - 1) / 3] := false;
+                                select := select - 2;
+                            endif
+                        endif
+                    endif
+                    update := true;
+                else if(num == 10)                                   // decimal point
+                    if((select % 3 == 1) && !dec[(select - 1) / 3])
+                        dec[(select - 1) / 3] := true;
+                        select := select + 2;
+                    endif
+                else                                                 // numbers
+                    *(param + select) := *(param + select) * 10 + num;
+                    if(!(select % 3) && dec[(select - 3) / 3] && !num && !*(param + select))
+                        (*(param + (select - 1)))++;
+                    endif
+                endif
+            endif
+            if(boxSelect == 0xFF && num == -1 && !exit)              // deselect box
+                select := 0;
+            endif
+        endif
+
+        if(DBG)
+            gfx_MoveTo(0, 0);
+            print("param:\n");
+            for(i := 0; i < shapeParam[arc]; i++)
+                print([HEX](*(param + i)), "\n");
+            next
+            print("select: ", select);
+            gfx_MoveTo(400, 0);
+            for(i := 0; i < 4; i++)
+                print(dec[i], "\n");
+            next
+        endif
+    wend
+    shapeMenu();
+
+    if(DBG)
+        gfx_MoveTo(0, 0);
+        print("param address: ", param, "\n");
+        for(i := 0; i < shapeParam[arc]; i++)
+            print(*(param + i), "\n");
+        next
+    endif
+    return (exit == 1) ? param : NULL;
+endfunc
+
+func ellipseParam()
+
+endfunc
+
+func gasSettings()
+    var exit;
+
+    gfx_Cls();
+    txt_Opacity(TRANSPARENT);
+    txt_Width(4);
+    txt_Height(4);
+
+    txt_FGcolour(CYAN);
+    gfx_Panel(1, 22, 10, 300, 105, NAVY);
+    gfx_MoveTo(26, 14);
+    print("Plate\nThickness");
+    txt_FGcolour(NAVY);
+    gfx_Panel(1, 22, 115, 300, 300, CYAN);
+    gfx_MoveTo(125, 119);
+    print("1/8\n1/4\n3/8\n1/2\n3/4\n1");
+
+    txt_FGcolour(CYAN);
+    gfx_Panel(1, 322, 10, 110, 105, NAVY);
+    gfx_MoveTo(326, 14);
+    print("Tip\nNo.");
+    txt_FGcolour(NAVY);
+    gfx_Panel(1, 322, 115, 110, 300, CYAN);
+    gfx_MoveTo(345, 119);
+    print("00\n0\n0\n1\n2\n2");
+
+    txt_FGcolour(CYAN);
+    gfx_Panel(1, 432, 10, 205 , 105, NAVY);
+    gfx_MoveTo(436, 14);
+    print("Oxygen\nPSIG");
+    txt_FGcolour(NAVY);
+    gfx_Panel(1, 432, 115, 205, 300, CYAN);
+    gfx_MoveTo(500, 119);
+    print("20\n30\n30\n40\n45\n45");
+
+    txt_FGcolour(CYAN);
+    gfx_Panel(1, 637, 10, 140, 105, NAVY);
+    gfx_MoveTo(641, 14);
+    print("Fuel");
+    gfx_MoveTo(641, 62);
+    print("PSIG");
+    txt_FGcolour(NAVY);
+    gfx_Panel(1, 637, 115, 140, 300, CYAN);
+    gfx_MoveTo(660, 119);
+    print("2.8\n2.8\n2.8\n2.8\n2.8\n2.8");
+    txt_Opacity(OPAQUE);
+    txt_Width(1);
+    txt_Height(1);
+    txt_FGcolour(LIME);
+    putstrCentred(400, 450, "Tap to return to Main Menu.");
+
+    while (!exit)
+        updateGlobal();
+        if(state == TOUCH_PRESSED)
+            exit := 1;
+        endif
+    wend
+
+    mainMenu();
+endfunc
+
+func thicknessInput()
+    var exit, prevSelect, select := 0xFF;
+
+    gfx_Cls();
+    gfx_Panel(1, 325, 90, 150, 20, NAVY);
+    gfx_Panel(1, 325, 110, 150, 225, GRAY);
+    gfx_MoveTo(275, 100);
+    txt_FGcolour(CYAN);
+    txt_BGcolour(NAVY);
+    putstrCentred(400, 100, "Plate Thickness");
+    gfx_Button3(1, 330, 295, 140, 30, LIME, RED, "OK!");
+
+    while(!exit)
+        if(select != prevSelect)
+            gfx_RadioButton(select >> 0 & 1, 330, 115, 100, 20, RED, BLACK, "1/8 th");
+            gfx_RadioButton(select >> 1 & 1, 330, 145, 100, 20, RED, BLACK, "1/4 th");
+            gfx_RadioButton(select >> 2 & 1, 330, 175, 100, 20, RED, BLACK, "3/8 th");
+            gfx_RadioButton(select >> 3 & 1, 330, 205, 100, 20, RED, BLACK, "1/2 th");
+            gfx_RadioButton(select >> 4 & 1, 330, 235, 100, 20, RED, BLACK, "3/4 th");
+            gfx_RadioButton(select >> 5 & 1, 330, 265, 100, 20, RED, BLACK, "1 inch");
+            prevSelect := select;
+        endif
+        updateGlobal();
+
+        if(state == TOUCH_PRESSED)
+            if(x >= 330 && x <= 430)
+                if(y >= 115 && y <= 135)         // 1/8 th
+                    select := ~(1 << 0);
+                else if(y >= 145 && y <= 165)    // 1/4 th
+                     select := ~(1 << 1);
+                else if(y >= 175 && y <= 195)    // 3/8 th
+                     select := ~(1 << 2);
+                else if(y >= 205 && y <= 225)    // 1/2 th
+                     select := ~(1 << 3);
+                else if(y >= 235 && y <= 255)    // 3/4 th
+                     select := ~(1 << 4);
+                else if(y >= 265 && y <= 285)    // 1 inch
+                     select := ~(1 << 5);
+                endif
+            endif
+            if(select != 0xFF && x >= 330 && x <= 470 && y >= 295 && y <= 325)    // ok
+                exit := 1;
+            endif
+        endif
+    wend
+
+    return select;
+endfunc
+
+func cutCommand()
+    var exit, i, j;
+    var thickness;
+
+    thickness := thicknessInput();
+
+    gfx_Cls();
+    print("Sending Cut List...\n");
+    serout1(0x00);
+    serout1(0x00);
+    serout1(HIbyte(thickness));
+    serout1(LObyte(thickness));
+    for(i := 0; i < count; i++)
+        for( j := 0; j < shapeParam[*(list[i])]; j++)
+            serout1(HIbyte(*(list[i] + j)));
+            serout1(LObyte(*(list[i] + j)));
+            serout(*(list[i] + j));
+            if(DBG)
+                print(*(list[i]+j), "\n");
+            endif
+        next
+    next
+
+    serout(0xFF);          // cut command.
+    serout(0xFF);
+    serout1(0xFF);
+    serout1(0xFF);
+
+    while (!exit)
+        updateGlobal();
+        if(state == TOUCH_PRESSED)
+            exit := 1;
+        endif
+    wend
+
+    mainMenu();
+endfunc
+
+func mainMenu()
+    var buttonState;
+
+    // TODO: Fix ternary.
+    if(count)
+        buttonState := 1;
+    else
+        buttonState := 0;
+    endif
+
+    gfx_Cls();
+    gfx_Button2(1, 0, 0, 150, 80, LIGHTGREY, BLACK, "Add Shape");
+    gfx_Button2(0, 0, 160, 150, 80, LIGHTGREY, BLACK, "Save");
+    gfx_Button2(0, 0, 240, 150, 80, LIGHTGREY, BLACK, "Load");
+    gfx_Button2(1, 0, 400, 150, 80, LIGHTGREY, BLACK, "Gas Settings");
+    gfx_Button2(buttonState, 150, 400, 150, 80, LIGHTGREY, BLACK, "Clear List");
+    gfx_Button2(checkCount, 300, 400, 150, 80, LIGHTGREY, BLACK, "Remove");
+    // TODO: change state to "checkCount == 1"...
+    gfx_Button2(0, 450, 400, 150, 80, LIGHTGREY, BLACK, "Edit");
+    gfx_Button2(buttonState, 650, 400, 150, 80, LIGHTGREY, RED, "Cut");
+    cutListPreview();
+endfunc
+
+func interrupt()
+    gfx_Cls();
+    print("thisworks!");
+    print(PA13);
+endfunc
+
+func main()
+    var hstrings ; // Handle to access uSD strings, uncomment if required
+    var hFontn ;   // Handle to access uSD fonts, uncomment if required and change n to font number
+//  Uncomment the following if uSD images, fonts or strings used.
+
+    putstr("Mounting...\n");
+    if (!(disk:=file_Mount()))
+        while(!(disk :=file_Mount()))
+            putstr("Drive not mounted...");
+            pause(200);
+            gfx_Cls();
+            pause(200);
+        wend
+    endif
+//    gfx_TransparentColour(0x0020);    // uncomment if transparency required
+//    gfx_Transparency(ON);             // uncomment if transparency required
+
+    hFontn := file_LoadImageControl("TORCH_~1.dan", "TORCH_~1.gcn", 1); // Open handle to access uSD fonts, uncomment if required and change n to font number dropping a and c if > 9
+    hstrings := file_Open("TORCH_~1.txf", 'r') ; // Open handle to access uSD strings, uncomment if required
+    hndl := file_LoadImageControl("TORCH_~1.dat", "TORCH_~1.gci", 1);
+
+
+    COM1_RX_pin(PA0);
+    COM1_TX_pin(PA1);
+    com1_Init(cutBuffer1, maxBuff * 2, 0);
+    com_SetBaud(COM1, 9600);
+    com_Init(cutBuffer, maxBuff * 2, 0);     // setup serial with Arduino
+    setbaud(6);
+
+    gfx_ScreenMode(LANDSCAPE) ;   // change manually if orientation change
+    touch_Set(TOUCH_ENABLE);
+
+    //bus_SetChangeInterrupt(interrupt, (1 << M_PA13));
+    welcomeScreen();
+
+    repeat
+        updateGlobal();
+
+        if(state == TOUCH_PRESSED)
+            if(y >= 400 && y <= 480)
+                if(x >= 0 && x <= 150)                          // Gas Settings
+                    gasSettings();
+                else if(x >= 150 && x <= 300 && count)          // Clear List
+                    while(count)
+                        mem_Free(list[count - 1]);
+                        count--;
+                    wend
+                    mainMenu();
+                else if(x >= 300 && x <= 450)                   // Remove
+                    // TODO: add function.
+                else if(x >= 450 && x <= 600)                   // Edit
+                else if(x >= 650 && x <= 800 && count)          // Cut
+                    cutCommand();
+                endif
+            endif
+            if(x >= 0 && x <= 150)
+                if(y >= 0 && y <= 80)                           // Shape Menu
+                    shapeMenu();
+                    shapeLoop();
+                else if(y >= 160 && y <= 240)                   // Save
+                else if(y >= 240 && y <= 320)                   // Load
+                endif
+            endif
+            // TODO: add checklist... should be dynamic
+        endif
+    forever
+endfunc
+
+func colors()
+    var exit;
+
+    gfx_Cls();
+    gfx_Button2(1, 0, 0, 80, 34, ALICEBLUE, BLACK, "ALICEBLUE");
+    gfx_Button2(1, 80, 0, 80, 34, ANTIQUEWHITE, BLACK, "ANTIQUEWHITE");
+    gfx_Button2(1, 160, 0, 80, 34, AQUA, BLACK, "AQUA");
+    gfx_Button2(1, 240, 0, 80, 34, AQUAMARINE, BLACK, "AQUAMARINE");
+    gfx_Button2(1, 320, 0, 80, 34, AZURE, BLACK, "AZURE");
+    gfx_Button2(1, 400, 0, 80, 34, BEIGE, BLACK, "BEIGE");
+    gfx_Button2(1, 480, 0, 80, 34, BISQUE, BLACK, "BISQUE");
+    gfx_Button2(1, 560, 0, 80, 34, BLACK, BLACK, "BLACK");
+    gfx_Button2(1, 640, 0, 80, 34, BLANCHEDALMOND, BLACK, "BLANCHEDALMOND");
+    gfx_Button2(1, 720, 0, 80, 34, BLUE, BLACK, "BLUE");
+
+    gfx_Button2(1, 0, 34, 80, 34, BLUEVIOLET, BLACK, "BLUEVIOLET");
+    gfx_Button2(1, 80, 34, 80, 34, BROWN, BLACK, "BROWN");
+    gfx_Button2(1, 160, 34, 80, 34, BURLYWOOD, BLACK, "BURLYWOOD");
+    gfx_Button2(1, 240, 34, 80, 34, CADETBLUE, BLACK, "CADETBLUE");
+    gfx_Button2(1, 320, 34, 80, 34, CHARTREUSE, BLACK, "CHARTREUSE");
+    gfx_Button2(1, 400, 34, 80, 34, CHOCOLATE, BLACK, "CHOCOLATE");
+    gfx_Button2(1, 480, 34, 80, 34, CORAL, BLACK, "CORAL");
+    gfx_Button2(1, 560, 34, 80, 34, CORNFLOWERBLUE, BLACK, "CORNFLOWERBLUE");
+    gfx_Button2(1, 640, 34, 80, 34, CORNSILK, BLACK, "CORNSILK");
+    gfx_Button2(1, 720, 34, 80, 34, CRIMSON, BLACK, "CRIMSON");
+
+    gfx_Button2(1, 0, 68, 80, 34, CYAN, BLACK, "CYAN");
+    gfx_Button2(1, 80, 68, 80, 34, DARKBLUE, BLACK, "DARKBLUE");
+    gfx_Button2(1, 160, 68, 80, 34, DARKCYAN, BLACK, "DARKCYAN");
+    gfx_Button2(1, 240, 68, 80, 34, DARKGOLDENROD, BLACK, "DARKGOLDENROD");
+    gfx_Button2(1, 320, 68, 80, 34, DARKGRAY, BLACK, "DARKGRAY");
+    gfx_Button2(1, 400, 68, 80, 34, DARKGREEN, BLACK, "DARKGREEN");
+    gfx_Button2(1, 480, 68, 80, 34, DARKKHAKI, BLACK, "DARKKHAKI");
+    gfx_Button2(1, 560, 68, 80, 34, DARKMAGENTA, BLACK, "DARKMAGENTA");
+    gfx_Button2(1, 640, 68, 80, 34, DARKOLIVEGREEN, BLACK, "DARKOLIVEGREEN");
+    gfx_Button2(1, 720, 68, 80, 34, DARKORANGE, BLACK, "DARKORANGE");
+
+    gfx_Button2(1, 0, 102, 80, 34, DARKORCHID, BLACK, "DARKORCHID");
+    gfx_Button2(1, 80, 102, 80, 34, DARKRED, BLACK, "DARKRED");
+    gfx_Button2(1, 160, 102, 80, 34, DARKSALMON, BLACK, "DARKSALMON");
+    gfx_Button2(1, 240, 102, 80, 34, DARKSEAGREEN, BLACK, "DARKSEAGREEN");
+    gfx_Button2(1, 320, 102, 80, 34, DARKSLATEBLUE, BLACK, "DARKSLATEBLUE");
+    gfx_Button2(1, 400, 102, 80, 34, DARKSLATEGRAY, BLACK, "DARKSLATEGRAY");
+    gfx_Button2(1, 480, 102, 80, 34, DARKTURQUOISE, BLACK, "DARKTURQUOISE");
+    gfx_Button2(1, 560, 102, 80, 34, DARKVIOLET, BLACK, "DARKVIOLET");
+    gfx_Button2(1, 640, 102, 80, 34, DEEPPINK, BLACK, "DEEPPINK");
+    gfx_Button2(1, 720, 102, 80, 34, DEEPSKYBLUE, BLACK, "DEEPSKYBLUE");
+
+    gfx_Button2(1, 0, 136, 80, 34, DIMGRAY, BLACK, "DIMGRAY");
+    gfx_Button2(1, 80, 136, 80, 34, DODGERBLUE, BLACK, "DODGERBLUE");
+    gfx_Button2(1, 160, 136, 80, 34, FIREBRICK, BLACK, "FIREBRICK");
+    gfx_Button2(1, 240, 136, 80, 34, FLORALWHITE, BLACK, "FLORALWHITE");
+    gfx_Button2(1, 320, 136, 80, 34, FORESTGREEN, BLACK, "FORESTGREEN");
+    gfx_Button2(1, 400, 136, 80, 34, FUCHSIA, BLACK, "FUCHSIA");
+    gfx_Button2(1, 480, 136, 80, 34, GAINSBORO, BLACK, "GAINSBORO");
+    gfx_Button2(1, 560, 136, 80, 34, GHOSTWHITE, BLACK, "GHOSTWHITE");
+    gfx_Button2(1, 640, 136, 80, 34, GOLD, BLACK, "GOLD");
+    gfx_Button2(1, 720, 136, 80, 34, GOLDENROD, BLACK, "GOLDENROD");
+
+    gfx_Button2(1, 0, 170, 80, 34, GRAY, BLACK, "GRAY");
+    gfx_Button2(1, 80, 170, 80, 34, GREEN, BLACK, "GREEN");
+    gfx_Button2(1, 160, 170, 80, 34, GREENYELLOW, BLACK, "GREENYELLOW");
+    gfx_Button2(1, 240, 170, 80, 34, HONEYDEW, BLACK, "HONEYDEW");
+    gfx_Button2(1, 320, 170, 80, 34, HOTPINK, BLACK, "HOTPINK");
+    gfx_Button2(1, 400, 170, 80, 34, INDIANRED, BLACK, "INDIANRED");
+    gfx_Button2(1, 480, 170, 80, 34, INDIGO, BLACK, "INDIGO");
+    gfx_Button2(1, 560, 170, 80, 34, IVORY, BLACK, "IVORY");
+    gfx_Button2(1, 640, 170, 80, 34, KHAKI, BLACK, "KHAKI");
+    gfx_Button2(1, 720, 170, 80, 34, LAVENDER, BLACK, "LAVENDER");
+
+    gfx_Button2(1, 0, 204, 80, 34, LAVENDERBLUSH, BLACK, "LAVENDERBLUSH");
+    gfx_Button2(1, 80, 204, 80, 34, LAWNGREEN, BLACK, "LAWNGREEN");
+    gfx_Button2(1, 160, 204, 80, 34, LEMONCHIFFON, BLACK, "LEMONCHIFFON");
+    gfx_Button2(1, 240, 204, 80, 34, LIGHTBLUE, BLACK, "LIGHTBLUE");
+    gfx_Button2(1, 320, 204, 80, 34, LIGHTCORAL, BLACK, "LIGHTCORAL");
+    gfx_Button2(1, 400, 204, 80, 34, LIGHTCYAN, BLACK, "LIGHTCYAN");
+    gfx_Button2(1, 480, 204, 80, 34, LIGHTGOLD, BLACK, "LIGHTGOLD");
+    gfx_Button2(1, 560, 204, 80, 34, LIGHTGREEN, BLACK, "LIGHTGREEN");
+    gfx_Button2(1, 640, 204, 80, 34, LIGHTGREY, BLACK, "LIGHTGREY");
+    gfx_Button2(1, 720, 204, 80, 34, LIGHTPINK, BLACK, "LIGHTPINK");
+
+    gfx_Button2(1, 0, 238, 80, 34, LIGHTSALMON, BLACK, "LIGHTSALMON");
+    gfx_Button2(1, 80, 238, 80, 34, LIGHTSEAGREEN, BLACK, "LIGHTSEAGREEN");
+    gfx_Button2(1, 160, 238, 80, 34, LIGHTSKYBLUE, BLACK, "LIGHTSKYBLUE");
+    gfx_Button2(1, 240, 238, 80, 34, LIGHTSLATEGRAY, BLACK, "LIGHTSLATEGRAY");
+    gfx_Button2(1, 320, 238, 80, 34, LIGHTSTEELBLUE, BLACK, "LIGHTSTEELBLUE");
+    gfx_Button2(1, 400, 238, 80, 34, LIGHTYELLOW, BLACK, "LIGHTYELLOW");
+    gfx_Button2(1, 480, 238, 80, 34, LIME, BLACK, "LIME");
+    gfx_Button2(1, 560, 238, 80, 34, LIMEGREEN, BLACK, "LIMEGREEN");
+    gfx_Button2(1, 640, 238, 80, 34, LINEN, BLACK, "LINEN");
+    gfx_Button2(1, 720, 238, 80, 34, MAGENTA, BLACK, "MAGENTA");
+
+    gfx_Button2(1, 0, 272, 80, 34, MAROON, BLACK, "MAROON");
+    gfx_Button2(1, 80, 272, 80, 34, MEDIUMAQUAMARINE, BLACK, "MEDIUMAQUAMARINE");
+    gfx_Button2(1, 160, 272, 80, 34, MEDIUMBLUE, BLACK, "MEDIUMBLUE");
+    gfx_Button2(1, 240, 272, 80, 34, MEDIUMORCHID, BLACK, "MEDIUMORCHID");
+    gfx_Button2(1, 320, 272, 80, 34, MEDIUMPURPLE, BLACK, "MEDIUMPURPLE");
+    gfx_Button2(1, 400, 272, 80, 34, MEDIUMSEAGREEN, BLACK, "MEDIUMSEAGREEN");
+    gfx_Button2(1, 480, 272, 80, 34, MEDIUMSLATEBLUE, BLACK, "MEDIUMSLATEBLUE");
+    gfx_Button2(1, 560, 272, 80, 34, MEDIUMSPRINGGREEN, BLACK, "MEDIUMSPRINGGREEN");
+    gfx_Button2(1, 640, 272, 80, 34, MEDIUMTURQUOISE, BLACK, "MEDIUMTURQUOISE");
+    gfx_Button2(1, 720, 272, 80, 34, MEDIUMVIOLETRED, BLACK, "MEDIUMVIOLETRED");
+
+    gfx_Button2(1, 0, 306, 80, 34, MIDNIGHTBLUE, BLACK, "MIDNIGHTBLUE");
+    gfx_Button2(1, 80, 306, 80, 34, MINTCREAM, BLACK, "MINTCREAM");
+    gfx_Button2(1, 160, 306, 80, 34, MISTYROSE, BLACK, "MISTYROSE");
+    gfx_Button2(1, 240, 306, 80, 34, MOCCASIN, BLACK, "MOCCASIN");
+    gfx_Button2(1, 320, 306, 80, 34, NAVAJOWHITE, BLACK, "NAVAJOWHITE");
+    gfx_Button2(1, 400, 306, 80, 34, NAVY, BLACK, "NAVY");
+    gfx_Button2(1, 480, 306, 80, 34, OLDLACE, BLACK, "OLDLACE");
+    gfx_Button2(1, 560, 306, 80, 34, OLIVE, BLACK, "OLIVE");
+    gfx_Button2(1, 640, 306, 80, 34, OLIVEDRAB, BLACK, "OLIVEDRAB");
+    gfx_Button2(1, 720, 306, 80, 34, ORANGE, BLACK, "ORANGE");
+
+    gfx_Button2(1, 0, 340, 80, 34, ORANGERED, BLACK, "ORANGERED");
+    gfx_Button2(1, 80, 340, 80, 34, ORCHID, BLACK, "ORCHID");
+    gfx_Button2(1, 160, 340, 80, 34, PALEGOLDENROD, BLACK, "PALEGOLDENROD");
+    gfx_Button2(1, 240, 340, 80, 34, PALEGREEN, BLACK, "PALEGREEN");
+    gfx_Button2(1, 320, 340, 80, 34, PALETURQUOISE, BLACK, "PALETURQUOISE");
+    gfx_Button2(1, 400, 340, 80, 34, PALEVIOLETRED, BLACK, "PALEVIOLETRED");
+    gfx_Button2(1, 480, 340, 80, 34, PAPAYAWHIP, BLACK, "PAPAYAWHIP");
+    gfx_Button2(1, 560, 340, 80, 34, PEACHPUFF, BLACK, "PEACHPUFF");
+    gfx_Button2(1, 640, 340, 80, 34, PERU, BLACK, "PERU");
+    gfx_Button2(1, 720, 340, 80, 34, PINK, BLACK, "PINK");
+
+    gfx_Button2(1, 0, 374, 80, 34, PLUM, BLACK, "PLUM");
+    gfx_Button2(1, 80, 374, 80, 34, POWDERBLUE, BLACK, "POWDERBLUE");
+    gfx_Button2(1, 160, 374, 80, 34, PURPLE, BLACK, "PURPLE");
+    gfx_Button2(1, 240, 374, 80, 34, RED, BLACK, "RED");
+    gfx_Button2(1, 320, 374, 80, 34, ROSYBROWN, BLACK, "ROSYBROWN");
+    gfx_Button2(1, 400, 374, 80, 34, ROYALBLUE, BLACK, "ROYALBLUE");
+    gfx_Button2(1, 480, 374, 80, 34, SADDLEBROWN, BLACK, "SADDLEBROWN");
+    gfx_Button2(1, 560, 374, 80, 34, SALMON, BLACK, "SALMON");
+    gfx_Button2(1, 640, 374, 80, 34, SANDYBROWN, BLACK, "SANDYBROWN");
+    gfx_Button2(1, 720, 374, 80, 34, SEAGREEN, BLACK, "SEAGREEN");
+
+    gfx_Button2(1, 0, 408, 80, 34, SEASHELL, BLACK, "SEASHELL");
+    gfx_Button2(1, 80, 408, 80, 34, SIENNA, BLACK, "SIENNA");
+    gfx_Button2(1, 160, 408, 80, 34, SILVER, BLACK, "SILVER");
+    gfx_Button2(1, 240, 408, 80, 34, SKYBLUE, BLACK, "SKYBLUE");
+    gfx_Button2(1, 320, 408, 80, 34, SLATEBLUE, BLACK, "SLATEBLUE");
+    gfx_Button2(1, 400, 408, 80, 34, SLATEGRAY, BLACK, "SLATEGRAY");
+    gfx_Button2(1, 480, 408, 80, 34, SNOW, BLACK, "SNOW");
+    gfx_Button2(1, 560, 408, 80, 34, SPRINGGREEN, BLACK, "SPRINGGREEN");
+    gfx_Button2(1, 640, 408, 80, 34, STEELBLUE, BLACK, "STEELBLUE");
+    gfx_Button2(1, 720, 408, 80, 34, TAN, BLACK, "TAN");
+
+    gfx_Button2(1, 0, 442, 80, 34, TEAL, BLACK, "TEAL");
+    gfx_Button2(1, 80, 442, 80, 34, THISTLE, BLACK, "THISTLE");
+    gfx_Button2(1, 160, 442, 80, 34, TOMATO, BLACK, "TOMATO");
+    gfx_Button2(1, 240, 442, 80, 34, TURQUOISE, BLACK, "TURQUOISE");
+    gfx_Button2(1, 320, 442, 80, 34, VIOLET, BLACK, "VIOLET");
+    gfx_Button2(1, 400, 442, 80, 34, WHEAT, BLACK, "WHEAT");
+    gfx_Button2(1, 480, 442, 80, 34, WHITE, BLACK, "WHITE");
+    gfx_Button2(1, 560, 442, 80, 34, WHITESMOKE, BLACK, "WHITESMOKE");
+    gfx_Button2(1, 640, 442, 80, 34, YELLOW, BLACK, "YELLOW");
+    gfx_Button2(1, 720, 442, 80, 34, YELLOWGREEN, BLACK, "YELLOWGREEN");
+
+    while (!exit)
+        updateGlobal();
+        if(state == TOUCH_PRESSED)
+            exit := 1;
+        endif
+    wend
+
+    mainMenu();
+endfunc
+

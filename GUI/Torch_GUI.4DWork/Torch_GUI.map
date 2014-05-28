@@ -1,0 +1,20 @@
+skipped: 20    colors ----
+linked : 19    main 0341
+skipped: 18    interrupt ----
+linked : 17    mainMenu 053E
+linked : 16    cutCommand 0628
+linked : 15    thicknessInput 0752
+linked : 14    gasSettings 09C6
+linked : 13    ellipseParam 0BE0
+linked : 12    arcParam 0BE1
+linked : 11    cirParam 138B
+linked : 10    rectParam 19B7
+linked : 9     lineParam 2088
+linked : 8     numPadInput 2748
+linked : 7     shapeInputTemplate 28F6
+linked : 6     shapeLoop 2B1C
+linked : 5     shapeMenu 2C99
+linked : 4     cutListPreview 2D32
+linked : 3     printNumber 2F72
+linked : 2     updateGlobal 2FCB
+linked : 1     welcomeScreen 304C

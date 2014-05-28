@@ -1,0 +1,6 @@
+Notice: no execution path to func 'colors'
+Notice: no execution path to func 'interrupt'
+Notice: global var 'checkList' is never used
+0 errors
+0 warnings
+3 notices
