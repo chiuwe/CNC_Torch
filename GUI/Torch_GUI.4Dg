@@ -4,6 +4,7 @@
 // TODO: if there is something in the serial buffer can't cut.
 // or use bus_SetChangeInterrupt(), how to update display tho.
 // TODO: check input data that it doesn't exceed max dimensions
+// TODO: ternary needs operational condition (>, <, ==, etc..)
 
 #inherit "4DGL_16bitColours.fnc"
 
@@ -64,11 +65,64 @@ func printNumber(var *arr)
     print(arr[2]);
 endfunc
 
+// 1 pixel == 1/10th inch
+func cutPreview()
+    // TODO: lost of vars
+    var sX, sY, eX, eY, width, height;
+    var cX, cY, radius, sDeg, eDeg;
+    var i;
+
+    drawOrigin();
+    gfx_Rectangle(20, 20, 380, 380, LIME);
+    for(i := 0; i < count; i++)
+        sX := 20;
+        sY := 20;
+        eX := 20;
+        eY := 20;
+        width := 0;
+        height := 0;
+        cX := 20;
+        cY := 20;
+        radius := 0;
+        switch(*(list[i]))
+            case line:
+                sX += inchesToPixels(list[i] + 1);
+                sY += inchesToPixels(list[i] + 4);
+                eX += inchesToPixels(list[i] + 7);
+                eY += inchesToPixels(list[i] + 10);
+                gfx_Line(sX, sY, eX, eY, WHITE);
+            break;
+            case rectangle:
+                sX += inchesToPixels(list[i] + 1);
+                sY += inchesToPixels(list[i] + 4);
+                width += inchesToPixels(list[i] + 7);
+                height += inchesToPixels(list[i] + 10);
+                gfx_Rectangle(sX, sY, sX + width, sY + height, WHITE);
+            break;
+            case circle:
+                cX += inchesToPixels(list[i] + 1);
+                cY += inchesToPixels(list[i] + 4);
+                radius += inchesToPixels(list[i] + 7);
+                gfx_Circle(cX, cY, radius, WHITE);
+            break;
+            case arc:
+                cX += inchesToPixels(list[i] + 1);
+                cY += inchesToPixels(list[i] + 4);
+                radius += inchesToPixels(list[i] + 7);
+                sDeg := *(list[i] + 10);
+                eDeg := *(list[i] + 13);
+                gfx_Arc(cX, cY, radius, 10, sDeg, eDeg, 0);
+            break;
+        endswitch
+    next
+endfunc
+
 // TODO: draw checkboxs.
 func cutListPreview()
     var i;
 
-    gfx_MoveTo(165, 10);
+    gfx_Cls();
+    gfx_MoveTo(50, 10);
     txt_FGcolour(WHITE);
     txt_BGcolour(BLACK);
     print("Cut List\n");
@@ -127,15 +181,86 @@ func cutListPreview()
     next
 endfunc
 
+func editCutListLoop()
+
+    var select0 := 0, select1 := 0, prevSelect0 := 1, prevSelect1 := 1;
+    var checks := 0, exit := 0, update := 0;
+    var i, top;
+
+    while(!exit)
+        if (select0 != prevSelect0 || select1 != prevSelect1|| update)
+        cutListPreview();
+            for(i := 0; i < count; i++)
+                gfx_Button2(1, 35, (22 + (i * 12)), 10, 10, ((select0 >> i & 1) ? RED : WHITE), WHITE, "");
+                if(i > 15)
+                    gfx_Button2(1, 35, (22 + (i * 12)), 10, 10, ((select1 >> ((i - 15) & 1)) ? RED : WHITE), WHITE, "");
+                endif
+            next
+            gfx_Button2(1, 0, 400, 150, 80, LIGHTGREY, BLACK, "Clear List");
+            gfx_Button2(((checks > 0) ? 1 : 0), 216, 400, 150, 80, LIGHTGREY, BLACK, "Remove");
+            gfx_Button2(checks == 1, 433, 400, 150, 80, LIGHTGREY, BLACK, "Edit");
+            gfx_Button2(1, 650, 400, 150, 80, LIGHTGREY, BLACK, "Main Menu");
+            prevSelect0 := select0;
+            prevSelect1 := select1;
+            update := false;
+        endif
+
+        updateGlobal();
+        if(state == TOUCH_PRESSED)
+            if(y >= 35 && y <= 45)
+                for(i := 0; i < count; i++)
+                    top := 22 + (i + 12);
+                    if(x >= top && x <= (top + 10))
+                        // TODO: bit shift select0, select1
+                    endif
+                next
+            endif
+            if(y >= 400 && y <= 480)
+                if(x >= 0 && x <= 150)                         // Clear List Button
+                    while (count)
+                        mem_Free(list[count - 1]);
+                        count--;
+                    wend
+                    update := true;
+                endif
+                if(x >= 216 && x <= 366)                       // Remove Button
+                endif
+                if(x >= 433 && x <= 583)                       // Edit Button
+                endif
+                if(x >= 650 && x <= 800)                       // Main Menu Button
+                    mainMenu();
+                    exit := true;
+                endif
+            endif
+        endif
+    wend
+endfunc
+
+func inchesToPixels(var *arr)
+    var temp, pixels := 0;
+
+    pixels := arr[0] * 10;
+    if (!arr[1])
+        temp := arr[2];
+        while (temp > 10)
+            temp %= 10;
+        wend
+        pixels += temp;
+    endif
+
+    return pixels;
+endfunc
+
 func shapeMenu()
 
     gfx_Cls();
-    gfx_Button2(1, 0, 0, 150, 75, LIGHTGREY,BLACK,"Line");
-    gfx_Button2(1, 0, 75, 150, 75, LIGHTGREY,BLACK,"Rectangle");
-    gfx_Button2(1, 0, 150, 150, 75, LIGHTGREY,BLACK,"Circle");
-    gfx_Button2(1, 0, 225, 150, 75, LIGHTGREY,BLACK, "Arc");
-    gfx_Button2(0, 0, 300, 150, 75, LIGHTGREY, BLACK, "Ellipse");
-    gfx_Button2(1, 0, 405, 150, 75, LIGHTGREY, BLACK, "Main Menu");
+    cutPreview();
+    gfx_Button2(1, 650, 0, 150, 75, LIGHTGREY,BLACK,"Line");
+    gfx_Button2(1, 650, 75, 150, 75, LIGHTGREY,BLACK,"Rectangle");
+    gfx_Button2(1, 650, 150, 150, 75, LIGHTGREY,BLACK,"Circle");
+    gfx_Button2(1, 650, 225, 150, 75, LIGHTGREY,BLACK, "Arc");
+    gfx_Button2(0, 650, 300, 150, 75, LIGHTGREY, BLACK, "Ellipse");
+    gfx_Button2(1, 650, 405, 150, 75, LIGHTGREY, BLACK, "Main Menu");
 endfunc
 
 func shapeLoop()
@@ -146,7 +271,7 @@ func shapeLoop()
         updateGlobal();
 
         if(state == TOUCH_PRESSED)
-            if(x >= 0 && x <= 150)
+            if(x >= 650 && x <= 800)
                 if(y >= 0 && y <= 75)           // Lines
                     param := lineParam();
                 else if(y >= 75 && y <= 150)    // Rectangles
@@ -182,9 +307,8 @@ func shapeLoop()
     mainMenu();
 endfunc
 
-func shapeInputTemplate()
+func drawOrigin()
 
-    gfx_Cls();
     gfx_Line(5, 5, 30, 5, RED);
     gfx_TriangleFilled(30, 10, 35, 5, 30, 0, RED);
     gfx_Line(5, 5, 5, 30, BLUE);
@@ -197,6 +321,11 @@ func shapeInputTemplate()
     txt_FGcolour(BLUE);
     print("Y");
     gfx_CircleFilled(5, 5, 2, YELLOW);
+endfunc
+
+func shapeInputTemplate()
+
+    gfx_Cls();
     gfx_Button2(1, 530, 0, 90, 120, LIGHTGREY, BLACK, "7");
     gfx_Button2(1, 620, 0, 90, 120, LIGHTGREY, BLACK, "8");
     gfx_Button2(1, 710, 0, 90, 120, LIGHTGREY, BLACK, "9");
@@ -979,6 +1108,7 @@ func gasSettings()
     txt_Width(1);
     txt_Height(1);
     txt_FGcolour(LIME);
+    txt_BGcolour(BLACK);
     putstrCentred(400, 450, "Tap to return to Main Menu.");
 
     while (!exit)
@@ -991,6 +1121,7 @@ func gasSettings()
     mainMenu();
 endfunc
 
+// TODO: add back option
 func thicknessInput()
     var exit, prevSelect, select := 0xFF;
 
@@ -1040,6 +1171,7 @@ func thicknessInput()
     return select;
 endfunc
 
+// TODO: instruction or automatic return back
 func cutCommand()
     var exit, i, j;
     var thickness;
@@ -1089,16 +1221,16 @@ func mainMenu()
     endif
 
     gfx_Cls();
-    gfx_Button2(1, 0, 0, 150, 80, LIGHTGREY, BLACK, "Add Shape");
-    gfx_Button2(0, 0, 160, 150, 80, LIGHTGREY, BLACK, "Save");
-    gfx_Button2(0, 0, 240, 150, 80, LIGHTGREY, BLACK, "Load");
+    gfx_Button2(1, 650, 0, 150, 80, LIGHTGREY, BLACK, "Add Shape");
+    gfx_Button2(0, 650, 160, 150, 80, LIGHTGREY, BLACK, "Save");
+    gfx_Button2(0, 650, 240, 150, 80, LIGHTGREY, BLACK, "Load");
     gfx_Button2(1, 0, 400, 150, 80, LIGHTGREY, BLACK, "Gas Settings");
-    gfx_Button2(buttonState, 150, 400, 150, 80, LIGHTGREY, BLACK, "Clear List");
-    gfx_Button2(checkCount, 300, 400, 150, 80, LIGHTGREY, BLACK, "Remove");
+    //gfx_Button2(buttonState, 150, 400, 150, 80, LIGHTGREY, BLACK, "Clear List");
+    gfx_Button2(buttonState, 325, 400, 150, 80, LIGHTGREY, BLACK, "Edit Cut List");
     // TODO: change state to "checkCount == 1"...
-    gfx_Button2(0, 450, 400, 150, 80, LIGHTGREY, BLACK, "Edit");
+    //gfx_Button2(0, 450, 400, 150, 80, LIGHTGREY, BLACK, "Edit");
     gfx_Button2(buttonState, 650, 400, 150, 80, LIGHTGREY, RED, "Cut");
-    cutListPreview();
+    cutPreview();
 endfunc
 
 func interrupt()
@@ -1155,14 +1287,13 @@ func main()
                         count--;
                     wend
                     mainMenu();
-                else if(x >= 300 && x <= 450)                   // Remove
-                    // TODO: add function.
-                else if(x >= 450 && x <= 600)                   // Edit
+                else if(x >= 325 && x <= 475 && count)          // Edit Cut List
+                    editCutListLoop();
                 else if(x >= 650 && x <= 800 && count)          // Cut
                     cutCommand();
                 endif
             endif
-            if(x >= 0 && x <= 150)
+            if(x >= 650 && x <= 800)
                 if(y >= 0 && y <= 80)                           // Shape Menu
                     shapeMenu();
                     shapeLoop();
