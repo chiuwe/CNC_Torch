@@ -3,8 +3,10 @@
 // TODO: check if it is at home at start up INPUT_PULLUP
 // TODO: determine if each drawing is going to fit on the canvas.
 // Changing RES effects scaling.
+
+// TODO: comment on what each #define is for
 #define RES 1000
-#define DIVISION 15
+#define DIVISION 15        // is this necessary?
 #define DBG 1
 
 enum shapeType {
